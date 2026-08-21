@@ -158,7 +158,7 @@ def main() -> None:
 
             grid_deformation.Set(
                 ngs.CF((displace_x,displace_y))
-            )
+            ) 
             
             # Solve 
             lhs.Assemble()
