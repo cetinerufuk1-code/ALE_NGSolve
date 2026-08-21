@@ -1,0 +1,10 @@
+[project]
+name = "ale-ngsolve"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "UfukCetiner", email = "cetinerufuk1@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = []
