@@ -8,6 +8,7 @@ from netgen.occ import OCCGeometry
 import netgen.gui
 from time import sleep
 from ngsolve.internal import visoptions
+import matplotlib.pyplot as plt
 
 print(dir(netgen.gui))
 # ================ PARAMETERS =================
@@ -52,7 +53,7 @@ def generate_mesh(
 
 def mesh_deformation_quantities(
         mesh: ngs.Mesh,
-        mesh_displacement: ngs.GridFunction,
+        grid_deformation: ngs.GridFunction,
     ) -> tuple[
         ngs.CoefficientFunction,
         ngs.CoefficientFunction,
@@ -62,7 +63,7 @@ def mesh_deformation_quantities(
 
     Args:
         mesh: NGSolve mesh used in the current setup.
-        mesh_displacement: Mesh displacement field given as
+        grid_deformation: Mesh displacement field given as
         NGSolve grid function.
 
     Returns:
@@ -71,7 +72,7 @@ def mesh_deformation_quantities(
         inverse_deformation_gradient:
     """
     identity = ngs.Id(mesh.dim)
-    deformation_gradient = ngs.Grad(mesh_displacement) + identity
+    deformation_gradient = ngs.Grad(grid_deformation) + identity
     jacobian = ngs.Det(deformation_gradient)
     inverse_deformation_gradient = ngs.Inv(deformation_gradient)
 
@@ -81,10 +82,94 @@ def mesh_deformation_quantities(
         inverse_deformation_gradient,
     )
 
-def main() -> None:
-    mesh = generate_mesh(ORDER,MAX_ELEMENT_SIZE)
+def get_mass_wrt_deformation(
+        mesh : ngs.Mesh,
+        grid_deformation : ngs.GridFunction,
+        temperature: ngs.GridFunction,
+        test_function : ngs.GridFunction,
+        delta_grid : ngs.CoefficientFunction,
+        printerr : bool = False
+    ) -> tuple[
+        float,
+        float]:
+    """Calculates derivative of mass term wrt to the grid deformation.
 
-    # ngs.Draw(mesh) ## Debug Line
+        Calculates analytical derivative and the finite difference derivative. Returns both values
+        and the difference if enabled.
+
+        Args: 
+            mesh: current finite element mesh.
+            grid_deformation: grid deformation at the current timestep.
+            temperature: Solution field at the current timestep.
+            test_function: Test function to evaluate the mass term integral.
+            delta_grid: Change in grid deformation.
+            printerr: Turn on/off the current error reprot output.
+        
+        Returns:
+            mass_wrt_deformation_analytical.
+            mass_wrt_deformation_finite.
+    """
+    epsillon = 1e-3 # delta for the finite difference
+
+    finite_space = grid_deformation.space
+    grid_deformation_dd = ngs.GridFunction(finite_space)
+    grid_deformation_dd.Set(grid_deformation + epsillon * delta_grid)
+    _, deformation_jacobian, inverse_deformation_gradient  = mesh_deformation_quantities(mesh,grid_deformation)
+    
+    _, deformation_jacbian_dd, _ = mesh_deformation_quantities(mesh,grid_deformation_dd)
+
+    # Analytical Derivative Calculation
+    deformation_jacobian_derivative = (ngs.Trace(
+        deformation_jacobian * inverse_deformation_gradient *
+        ngs.Grad(delta_grid)
+    ))
+
+    mass_wrt_deformation_analytical = ngs.Integrate(deformation_jacobian_derivative *
+            temperature * test_function / TIME_STEP, mesh
+    )
+
+    # Finite Differene Derivative Calculation
+    mass_wrt_deformation_finite = (
+        ( ngs.Integrate(deformation_jacbian_dd * temperature * test_function / TIME_STEP, mesh) -
+        ngs.Integrate(deformation_jacobian * temperature * test_function / TIME_STEP, mesh) ) /
+        epsillon
+    )
+
+    if printerr:
+        absErr = np.abs(mass_wrt_deformation_finite - mass_wrt_deformation_analytical)
+        print(f"Current mass derivative difference: {absErr:.3e}")
+
+    return (mass_wrt_deformation_analytical, mass_wrt_deformation_finite)
+
+def plot_results(
+    mass_wrt_deformation_history : list[tuple[float,float]],
+    time_history : list[float]
+    ) -> None:
+    """Plots calculated derivatives.
+
+        Args:
+            mass_wrt_deformation_hisotry: list of tuples containing the history
+            of both analytical and finite difference solutions.
+            time_history: List of time values corresponding to the derivative values above.
+    """
+
+    mass_wrt_deformation_analytical = [item[0] for item in mass_wrt_deformation_history]
+    mass_wrt_deformation_finite = [item[1] for item in mass_wrt_deformation_history]
+    
+    fig, ax1 = plt.subplots()
+
+    ax1.plot(time_history,mass_wrt_deformation_finite,label="Finite Difference Approximation",linewidth=3)
+    ax1.plot(time_history,mass_wrt_deformation_analytical,linestyle="--",label="Analytical Approximation",linewidth=3)
+
+    ax1.legend()
+    ax1.set_ylabel(r"$\frac{\partial M}{\partial d}\,\delta d$")
+    ax1.set_xlabel("Time (s)")
+    plt.show()
+
+
+def main() -> None:
+    """"Main setup and time iteration."""
+    mesh = generate_mesh(ORDER,MAX_ELEMENT_SIZE)
     
     # Setup Displacement and Temperature Fields
     displacement_space = ngs.VectorH1(mesh, order=ORDER)
@@ -138,6 +223,8 @@ def main() -> None:
 
     # Begin Time Iteration
     t = 0
+    test_function = ngs.GridFunction(temperature_space)
+    test_function.Set(1.0)
 
     ngs.Draw(temperature,mesh,"temperature")
     ngs.Draw(grid_deformation,mesh,"displacement")
@@ -145,6 +232,9 @@ def main() -> None:
     visoptions.scalfunction = "temperature:0"
     visoptions.vecfunction = "displacement"
     visoptions.deformation = 1
+
+    mass_wrt_deformation_history : list[tuple[float,float]] = []
+    time_history : list[float] = []
     
     with ngs.TaskManager():
         while t < END_TIME:
@@ -152,7 +242,6 @@ def main() -> None:
             grid_deformation_old.vec.data = grid_deformation.vec
 
             # Assign some deformation
-            dist = ngs.sqrt(ngs.x*ngs.x + ngs.y * ngs.y)
             displace_x = 0.035 * ngs.sin(ngs.pi * ngs.x / 0.5 / 2) * ngs.sin(ngs.pi * ngs.y / 0.5) * ngs.sin((10*ngs.pi)*t)
             displace_y = 0.035 * ngs.sin(ngs.pi * ngs.y / 0.5 / 2) * ngs.sin(ngs.pi * ngs.x / 0.5) * ngs.sin((10*ngs.pi)*t)
 
@@ -171,12 +260,19 @@ def main() -> None:
             # (deformation set for visualization only)
             ngs.Redraw(blocking=True)
 
-            t += TIME_STEP 
-            #sleep(0.05)
-            # Slow down for better visualization
-            
-    input("Press any key to exit...")
+            delta_grid = grid_deformation - grid_deformation_old
+            # Calculate Derivatives
+            mass_wrt_deformation = get_mass_wrt_deformation( 
+                mesh,grid_deformation,temperature,test_function,delta_grid,True)
 
+            mass_wrt_deformation_history.append(mass_wrt_deformation)
+            time_history.append(t)
+
+            t += TIME_STEP 
+
+    # Plot Results
+    plot_results(mass_wrt_deformation_history,time_history)
+    input("Press any key to exit...")
 
 
 if __name__ == "__main__":
