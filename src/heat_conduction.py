@@ -2,6 +2,7 @@
 
 import ngsolve as ngs
 import numpy as np
+import netgen.gui # do not remove this
 from netgen.occ import Glue
 from netgen.occ import MoveTo
 from netgen.occ import OCCGeometry
