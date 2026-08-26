@@ -1,10 +1,10 @@
 """" Head conduction equations Arbitrary Eularian Lagrangian (ALE) form.
 
-    Platform for testing and validating both the steady-state linearized Arbitrary 
-    Lagrangian–Eulerian (ALE) heat conduction equations and the standard non-linear heat 
-    conduction formulation. The solver provides access to derivatives of the individual terms, 
-    enabling detailed verification, analysis, and comparison of the linearized and 
-    non-linear formulations.
+    Platform for testing and validating the steady-state linearized Arbitrary 
+    Lagrangian–Eulerian (ALE) heat conduction equations by comparing against
+    standard non-linear heat conduction formulation. The solver provides access 
+    to derivatives of the individual terms, enabling detailed verification, 
+    analysis, and comparison of the linearized and non-linear formulations.
 
     STATUS: In progress."""
 
@@ -412,7 +412,7 @@ def main() -> None:
             # Ensure difference is acceptable
             assert (error <= MAX_DIFF), "Non-linear and linear solutions differ more than tolerance."
 
-            print(f"Time: {t:.2f}s - Current absolute error : {error:.3e}")
+            #print(f"Time: {t:.2f}s - Current absolute error : {error:.3e}")
 
             t += TIME_STEP
 

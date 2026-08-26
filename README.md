@@ -8,7 +8,7 @@
   />
 </p>
 
-This repository uses the NGSolve library to solve the heat conduction equations in an Arbitrary Lagrangian–Eulerian (ALE) formulation. Additional implementations linearize each contributing term and reformulate the solution field with respect to the steady-state solution.
+This repository uses the NGSolve library to solve the heat conduction equations in an Arbitrary Lagrangian–Eulerian (ALE) formulation. The main goal is to use the standard non-linear solve to verify steady-state linearized solutions.
 
 ## Theory
 
@@ -41,3 +41,27 @@ $$ \mathrm{Mass:} \frac{\partial M}{\partial\phi} \delta\phi = \int_{\hat{\Omega
 
 
 (more derivatives to follow)
+
+## Install Instructions
+
+1. Install uv\
+```
+pip install uv
+```
+
+2. Clone repository 
+```
+git clone <REPOSITOYRY_URL>
+cd NGS_ALE_Heat
+```
+
+3. Create virtual environment and sync required packages
+```
+uv venv
+uv sync
+```
+
+4. Run Script
+```
+uv run src\heat_conduction_lin.py --vis-on
+```
