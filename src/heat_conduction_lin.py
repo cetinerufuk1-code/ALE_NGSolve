@@ -1,13 +1,16 @@
 """" Head conduction equations Arbitrary Eularian Lagrangian (ALE) form.
 
-    Testing linearized mass term solution and comparing them to the standard
-    linear solve.
+    Platform for testing and validating both the steady-state linearized Arbitrary 
+    Lagrangian–Eulerian (ALE) heat conduction equations and the standard non-linear heat 
+    conduction formulation. The solver provides access to derivatives of the individual terms, 
+    enabling detailed verification, analysis, and comparison of the linearized and 
+    non-linear formulations.
 
     STATUS: In progress."""
 
+import argparse
 import ngsolve as ngs
 import numpy as np
-import netgen.gui # do not remove this
 from netgen.occ import Glue
 from netgen.occ import MoveTo
 from netgen.occ import OCCGeometry
@@ -16,14 +19,35 @@ from netgen.occ import X
 from netgen.occ import Y
 from ngsolve.internal import visoptions
 
+def parse_arguments() -> argparse.Namespace:
+    """Parse command-line arguments and set defaults for simulation parameters.
+    
+    Returns:
+        vis_option."""
+    parser = argparse.ArgumentParser(
+        description="Run simulation.",
+    )
+    parser.add_argument(
+        "--vis-on",
+        action="store_true",
+        help="Turn on/off visualization, by default set to False.",
+    )
+    return parser.parse_args()
+
 # ================ PARAMETERS =================
+args = parse_arguments() 
+
 ORDER = 3
 MAX_ELEMENT_SIZE = 0.05
 TIME_STEP = 0.001
 END_TIME = 0.5
 SOURCE_STRENGTH = 100
 EPS = 1e-5  # delta for finite difference
+VIS_OPTION = args.vis_on
+MAX_DIFF = 1e-5
 
+if VIS_OPTION: # check if user wants visualization
+    import netgen.gui
 
 def generate_mesh(
         order: int,
@@ -240,6 +264,45 @@ def mass_integral_wrt_deformation(
         ngs.InnerProduct(temperature_trial, temperature_test) / TIME_STEP
         ) * ngs.dx
 
+def non_linear_form(
+    mesh: ngs.Mesh,
+    grid_deformation : ngs.GridFunction,
+    grid_deformation_old : ngs.GridFunction,
+    temperature_space : ngs.H1,
+    temperature_trial : ngs.GridFunction,
+    temperature_test : ngs.GridFunction,
+    temperature_old : ngs.GridFunction
+    ) -> tuple[
+        ngs.BilinearForm,
+        ngs.LinearForm
+    ]:
+    """LHS, RHS bilinear and linear form for the non-linear heat conduction eqautions.
+    
+    Args:
+        mesh: current finite element mesh.
+        grid_deformation: grid deformation at the current timestep.
+        grid_deformation_old: grid deformation at previous timestep.
+        temperature_space: current finite element space.
+        temperature_trial: Trial function
+        temperature_test: Test function.
+        temperature_old : temperature field at previous timestep.
+    
+    Returns:
+        lhs_nonlinear.
+        rhs_nonlinear."""
+    lhs_nonlinear = ngs.BilinearForm(temperature_space, symmetric=False)
+    rhs_nonlinear = ngs.LinearForm(temperature_space)
+
+    lhs_nonlinear += mass_integral(mesh, grid_deformation, temperature_trial, temperature_test)
+    lhs_nonlinear += diffusion_integral(mesh, grid_deformation, temperature_trial, temperature_test)
+    lhs_nonlinear += convection_integral(mesh, grid_deformation,
+                            grid_deformation_old, temperature_trial, temperature_test)
+
+    rhs_nonlinear += source_integral(mesh, grid_deformation, temperature_test)
+    rhs_nonlinear += mass_integral(mesh, grid_deformation, temperature_old, temperature_test)
+
+    return (lhs_nonlinear, rhs_nonlinear)
+
 def standard_solver(
         lhs : ngs.BilinearForm,
         rhs : ngs.BilinearForm,
@@ -276,19 +339,14 @@ def main() -> None:
     temperature_lin, temperature_old_lin = (
         ngs.GridFunction(temperature_space), ngs.GridFunction(temperature_space))
     
-    # Define the heat conduction equations in weak form
-    lhs = ngs.BilinearForm(temperature_space, symmetric=False)
-    rhs = ngs.LinearForm(temperature_space)
+    # Define non-linear heat conduction weak form
+    (lhs_nonlinear, rhs_nonlinear) = non_linear_form(
+        mesh,grid_deformation,grid_deformation_old,
+        temperature_space,temperature_trial,temperature_test,temperature_old)
 
-    lhs += mass_integral(mesh, grid_deformation, temperature_trial, temperature_test)
-    lhs += diffusion_integral(mesh, grid_deformation, temperature_trial, temperature_test)
-    lhs += convection_integral(mesh, grid_deformation,
-                            grid_deformation_old, temperature_trial, temperature_test)
-
-    rhs += source_integral(mesh, grid_deformation, temperature_test)
-    rhs += mass_integral(mesh, grid_deformation, temperature_old, temperature_test)
-
-    # LHS & RHS for linearized Mass term solve
+    # LHS & RHS for linearized solve
+    # linearized only mass term for now, feature implementations
+    # would group all this into a function
     grid_steady = ngs.GridFunction(displacement_space)
     grid_steady.Set(ngs.CF((0,0)))
     delta_grid_steady = grid_deformation - grid_steady
@@ -311,19 +369,16 @@ def main() -> None:
     )
     rhs_steady += source_integral(mesh, grid_deformation, temperature_test_lin)
    
-    preconditioner = ngs.Preconditioner(lhs, type="multigrid", inverse="sparsecholesky")
+    preconditioner = ngs.Preconditioner(lhs_nonlinear, type="multigrid", inverse="sparsecholesky")
     preconditioner_steady = ngs.Preconditioner(lhs_steady, type="multigrid", inverse="sparsecholesky")
 
-    # Initial Conditions (this might be unnecessary)
-    temperature.Set(0.0)  
-    temperature_lin.Set(0.0)
-
-    # Begin visualization
-    ngs.Draw(temperature, mesh, "temperature")
-    ngs.Draw(grid_deformation, mesh, "displacement")
-    visoptions.scalfunction = "temperature:0"
-    visoptions.vecfunction = "displacement"
-    visoptions.deformation = 1
+    if VIS_OPTION:
+        netgen.gui.StartGUI
+        ngs.Draw(temperature, mesh, "temperature")
+        ngs.Draw(grid_deformation, mesh, "displacement")
+        visoptions.scalfunction = "temperature:0"
+        visoptions.vecfunction = "displacement"
+        visoptions.deformation = 1
 
     # Begin Time Iteration
     t = 0
@@ -334,48 +389,18 @@ def main() -> None:
             grid_deformation_old.vec.data = grid_deformation.vec
 
             # Assign some deformation
-            displace_x = (0.035 * ngs.sin(ngs.pi * ngs.x / 0.5 / 2) *
+            displace_x = (0.015 * ngs.sin(ngs.pi * ngs.x / 0.5 / 2) *
                 ngs.sin(ngs.pi * ngs.y / 0.5) * ngs.sin((10 * ngs.pi) * t))
-            displace_y = (0.035 * ngs.sin(ngs.pi * ngs.y / 0.5 / 2) *
+            displace_y = (0.015 * ngs.sin(ngs.pi * ngs.y / 0.5 / 2) *
                 ngs.sin(ngs.pi * ngs.x / 0.5) * ngs.sin((10 * ngs.pi) * t))
 
             grid_deformation.Set(
                 ngs.CF((displace_x, displace_y)),
             )
 
-            # Solve
-            standard_solver(lhs,rhs,preconditioner,temperature)
-
-            # Display Current timestep
-            ngs.Redraw(blocking=True)
-
-            # Calculate Mass Derivative
-            # To-Do: Implement function for each derivative
-            delta_grid = grid_deformation - grid_deformation_old
-            mass_derivative_analytical = ngs.BilinearForm(temperature_space, symmetric=False)
-            mass_derivative_analytical += (mass_integral_wrt_deformation(
-                mesh, grid_deformation, temperature_trial, temperature_test, delta_grid)
-            )
-            mass_derivative_matrix_analytical = mass_derivative_analytical.Assemble().mat
-
-            # Mass Derivative Finite Difference
-            grid_deformation_dd = ngs.GridFunction(displacement_space)
-            grid_deformation_dd.Set(grid_deformation + EPS * delta_grid)
-
-            mass_derivative_finite = ngs.BilinearForm(temperature_space, symmetric=False)
-            mass_derivative_finite += (1 / EPS) * (
-                mass_integral(mesh, grid_deformation_dd, temperature_trial, temperature_test) -
-                mass_integral(mesh, grid_deformation, temperature_trial, temperature_test))
-
-            mass_derivative_matrix_finite = mass_derivative_finite.Assemble().mat
-
-            # Validate analytical matrix values
-            _, _, va = mass_derivative_matrix_analytical.COO()
-            _, _, vb = mass_derivative_matrix_finite.COO()
-
-            np.testing.assert_allclose(va, vb, rtol=0, atol=1e-8, strict=False)
-
-            # Linearized mass term solve
+            # Non-linear solve
+            standard_solver(lhs_nonlinear,rhs_nonlinear,preconditioner,temperature)
+            # Linearized solve
             standard_solver(lhs_steady,rhs_steady,preconditioner_steady,temperature_lin)
 
             # Report the difference
@@ -384,11 +409,16 @@ def main() -> None:
                 mesh
             ))      
 
-            print(f"Current absolute error : {error:.3e}")
+            # Ensure difference is acceptable
+            assert (error <= MAX_DIFF), "Non-linear and linear solutions differ more than tolerance."
+
+            print(f"Time: {t:.2f}s - Current absolute error : {error:.3e}")
 
             t += TIME_STEP
 
-    input("Press any key to exit...")
+            # Display Current timestep
+            if VIS_OPTION:
+                ngs.Redraw(blocking=True)
 
 
 if __name__ == "__main__":

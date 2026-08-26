@@ -1,15 +1,18 @@
 [project]
-name = "ale-ngsolve"
-version = "0.1.0"
-description = "Add your description here"
+name = "ngs_ale_heat"
+version = "1.0.0"
+description = "Solver for ALE form heat conduction equations using NGSolve library."
 readme = "README.md"
 authors = [
     { name = "UfukCetiner", email = "cetinerufuk1@gmail.com" }
 ]
 requires-python = ">=3.14"
-dependencies = []
-
-[dependency-groups]
-dev = [
-    "ruff>=0.16.4",
+dependencies = [
+    "netgen-mesher==6.2.2606",
+    "netgen-occt==7.8.1",
+    "ngsolve==6.2.2606",
+    "ngsolve-openblas==0.3.33",
+    "numpy==2.5.2",
+    "ruff==0.16.4",
 ]
+

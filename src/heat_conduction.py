@@ -1,4 +1,10 @@
-"""" Head conduction equations Arbitrary Eularian Lagrangian (ALE) form."""
+"""" Head conduction equations Arbitrary Eularian Lagrangian (ALE) form.
+
+    Use to verify analytical derivative formulation by referencing it against
+    finite difference results.
+
+    STATUS: Mass derivative implementation shown.
+"""
 
 import ngsolve as ngs
 import numpy as np
@@ -55,9 +61,6 @@ def generate_mesh(
     mesh.Curve(order)
 
     return mesh
-
-# Grid Motion Function
-
 
 def grid_deformation_quantities(
         mesh: ngs.Mesh,
