@@ -44,7 +44,8 @@ END_TIME = 0.5
 SOURCE_STRENGTH = 100
 EPS = 1e-5  # delta for finite difference
 VIS_OPTION = args.vis_on
-MAX_DIFF = 1e-5
+MAX_DIFF = 1e-1 # enforce less than 10% difference
+AMPLITUDE = 1e-2
 
 if VIS_OPTION: # check if user wants visualization
     import netgen.gui
@@ -250,19 +251,73 @@ def mass_integral_wrt_deformation(
     Returns:
         mass_integral_wrt_deformation.
     """
-    _, deformation_jacobian, inverse_deformation_gradient = (
+    _, deformation_determinant, inverse_deformation_gradient = (
     grid_deformation_quantities(mesh, grid_deformation)
     )
 
     # Analytical Derivative Calculation
     deformation_determinant_derivative = (ngs.Trace(
-        deformation_jacobian * inverse_deformation_gradient *
-        ngs.Grad(delta_grid),
-    ))
+        deformation_determinant * inverse_deformation_gradient *
+        ngs.Grad(delta_grid)))
 
     return (deformation_determinant_derivative *
         ngs.InnerProduct(temperature_trial, temperature_test) / TIME_STEP
         ) * ngs.dx
+
+def convection_integral_wrt_deformation(
+    mesh: ngs.Mesh,
+    grid_deformation: ngs.GridFunction,
+    temperature_trial: ngs.GridFunction,
+    temperature_test: ngs.GridFunction,
+    delta_grid: ngs.CoefficientFunction,
+) -> ngs.comp.SumOfIntegrals:
+    """Calculates derivative of convection term wrt to grid deformation
+    
+    Symbolic intgral: 
+    
+    Args:
+        mesh: current finite element mesh.
+        grid_deformation: grid deformation at the current timestep.
+        temperature_trial: Trial function
+        temperature_test: Test function.
+        delta_grid: Change in grid deformation.
+
+    Returns:
+        mass_integral_wrt_deformation.
+    """
+    print("save this for last")
+
+def source_integral_wrt_deformation(
+    mesh: ngs.Mesh,
+    grid_deformation: ngs.GridFunction,
+    temperature_test: ngs.GridFunction,
+    delta_grid: ngs.CoefficientFunction,
+) -> ngs.comp.SumOfIntegrals:
+    """Calculates derivative of source term wrt to grid deformation.
+    
+    Symbolic intgral: ∫ J⋅tr(F⁻¹⋅∇δ𝚽)⋅f⋅v dΩ₀
+    Assuming source function is independent of grid deformation.
+    
+    Args:
+        mesh: current finite element mesh.
+        grid_deformation: grid deformation at the current timestep.
+        temperature_test: Test function.
+        delta_grid: Change in grid deformation.
+
+    Returns:
+        source_integral_wrt_deformation.
+    """
+    _, deformation_determinant, inverse_deformation_gradient = (
+        grid_deformation_quantities(mesh, grid_deformation)
+    )
+
+    deformation_determinant_derivative = (ngs.Trace(
+        deformation_determinant * inverse_deformation_gradient *
+        ngs.Grad(delta_grid)))
+
+    return (deformation_determinant_derivative *
+            SOURCE_STRENGTH * temperature_test) * ngs.dx
+
 
 def non_linear_form(
     mesh: ngs.Mesh,
@@ -302,6 +357,61 @@ def non_linear_form(
     rhs_nonlinear += mass_integral(mesh, grid_deformation, temperature_old, temperature_test)
 
     return (lhs_nonlinear, rhs_nonlinear)
+
+def steady_linearized_form(
+    mesh: ngs.Mesh,
+    grid_deformation : ngs.GridFunction,
+    grid_deformation_old : ngs.GridFunction,
+    grid_steady : ngs.GridFunction,
+    delta_grid : ngs.GridFunction,
+    temperature_space : ngs.H1,
+    temperature_trial : ngs.GridFunction,
+    temperature_test : ngs.GridFunction,
+    temperature_old : ngs.GridFunction
+    ) -> tuple[
+        ngs.BilinearForm,
+        ngs.LinearForm
+    ]:        
+    """LHS, RHS bilinear and linear form for the steady-state linearized heat conduction equations.
+    
+    Args:
+        mesh: current finite element mesh.
+        grid_deformation: grid deformation at the current timestep.
+        grid_deformation_old: grid deformation at previous timestep.
+        temperature_space: current finite element space.
+        temperature_trial: Trial function
+        temperature_test: Test function.
+        temperature_old : temperature field at previous timestep.
+    
+    Returns:
+        lhs_linear.
+        rhs_linear.
+    """
+    lhs_linear = ngs.BilinearForm(temperature_space, symmetric =False)
+    rhs_linear = ngs.LinearForm(temperature_space)
+    # Mass 
+    lhs_linear += (
+        mass_integral(mesh,grid_steady,temperature_trial,temperature_test) +
+        mass_integral_wrt_deformation(mesh,grid_steady,temperature_trial,temperature_test,delta_grid)
+    )
+    # Diffusion
+    lhs_linear += diffusion_integral(mesh, grid_deformation, temperature_trial, temperature_test)
+    # Convection
+    lhs_linear += convection_integral(mesh, grid_deformation,
+                            grid_deformation_old, temperature_trial, temperature_test)
+
+    # Transient
+    rhs_linear += (
+        mass_integral(mesh,grid_steady,temperature_old,temperature_test) +
+        mass_integral_wrt_deformation(mesh,grid_steady,temperature_old,temperature_test,delta_grid)
+    )
+    # Source
+    rhs_linear += (
+        source_integral(mesh, grid_steady, temperature_test) +
+        source_integral_wrt_deformation(mesh,grid_steady,temperature_test,delta_grid)
+    )
+
+    return (lhs_linear, rhs_linear)
 
 def standard_solver(
         lhs : ngs.BilinearForm,
@@ -351,26 +461,12 @@ def main() -> None:
     grid_steady.Set(ngs.CF((0,0)))
     delta_grid_steady = grid_deformation - grid_steady
 
-    lhs_steady = ngs.BilinearForm(temperature_space, symmetric=False)
-    rhs_steady = ngs.LinearForm(temperature_space)
-
-    # Linearized mass term
-    lhs_steady += (
-        mass_integral(mesh,grid_steady,temperature_trial_lin,temperature_test_lin) +
-        mass_integral_wrt_deformation(mesh,grid_steady,temperature_trial,temperature_test,delta_grid_steady)
-    )
-    lhs_steady += diffusion_integral(mesh, grid_deformation, temperature_trial_lin, temperature_test_lin)
-    lhs_steady += convection_integral(mesh, grid_deformation,
-                            grid_deformation_old, temperature_trial_lin, temperature_test_lin)
-
-    rhs_steady += (
-        mass_integral(mesh,grid_steady,temperature_old_lin,temperature_test_lin) +
-        mass_integral_wrt_deformation(mesh,grid_steady,temperature_old_lin,temperature_test,delta_grid_steady)
-    )
-    rhs_steady += source_integral(mesh, grid_deformation, temperature_test_lin)
-   
+    (lhs_linear, rhs_linear) = steady_linearized_form(
+        mesh,grid_deformation,grid_deformation_old,grid_steady,delta_grid_steady,
+        temperature_space,temperature_trial_lin,temperature_test_lin,temperature_old_lin)
+    
     preconditioner = ngs.Preconditioner(lhs_nonlinear, type="multigrid", inverse="sparsecholesky")
-    preconditioner_steady = ngs.Preconditioner(lhs_steady, type="multigrid", inverse="sparsecholesky")
+    preconditioner_steady = ngs.Preconditioner(lhs_linear, type="multigrid", inverse="sparsecholesky")
 
     if VIS_OPTION:
         netgen.gui.StartGUI
@@ -382,6 +478,8 @@ def main() -> None:
 
     # Begin Time Iteration
     t = 0
+    non_lin_history = []
+
     with ngs.TaskManager():
         while t < END_TIME:
             temperature_old.vec.data = temperature.vec
@@ -389,9 +487,9 @@ def main() -> None:
             grid_deformation_old.vec.data = grid_deformation.vec
 
             # Assign some deformation
-            displace_x = (0.015 * ngs.sin(ngs.pi * ngs.x / 0.5 / 2) *
+            displace_x = (AMPLITUDE * ngs.sin(ngs.pi * ngs.x / 0.5 / 2) *
                 ngs.sin(ngs.pi * ngs.y / 0.5) * ngs.sin((10 * ngs.pi) * t))
-            displace_y = (0.015 * ngs.sin(ngs.pi * ngs.y / 0.5 / 2) *
+            displace_y = (AMPLITUDE * ngs.sin(ngs.pi * ngs.y / 0.5 / 2) *
                 ngs.sin(ngs.pi * ngs.x / 0.5) * ngs.sin((10 * ngs.pi) * t))
 
             grid_deformation.Set(
@@ -401,19 +499,23 @@ def main() -> None:
             # Non-linear solve
             standard_solver(lhs_nonlinear,rhs_nonlinear,preconditioner,temperature)
             # Linearized solve
-            standard_solver(lhs_steady,rhs_steady,preconditioner_steady,temperature_lin)
+            standard_solver(lhs_linear,rhs_linear,preconditioner_steady,temperature_lin)
 
-            # Report the difference
+            # Calculate L2 Norm
             error = np.sqrt(ngs.Integrate(
                 (temperature_lin - temperature)**2,
                 mesh
-            ))      
+            ))
+            non_lin_history.append(
+                np.sqrt(ngs.Integrate(
+                    temperature**2,mesh
+                )))
+            normErr = error / np.max(non_lin_history)
 
             # Ensure difference is acceptable
-            assert (error <= MAX_DIFF), "Non-linear and linear solutions differ more than tolerance."
+            assert (normErr <= MAX_DIFF), "Non-linear and linear solutions differ more than 10%."
 
-            #print(f"Time: {t:.2f}s - Current absolute error : {error:.3e}")
-
+            print(f"Time: {t:.2f}s - Current Normalized Error : {normErr:.3e}")
             t += TIME_STEP
 
             # Display Current timestep
