@@ -1,14 +1,14 @@
 """" Head conduction equations Arbitrary Eularian Lagrangian (ALE) form.
 
-    Use to verify analytical derivative formulation by referencing it against
-    finite difference results.
+Use to verify analytical derivative formulation by referencing it against
+finite difference results.
 
-    STATUS: Mass derivative implementation shown.
+STATUS: Mass derivative implementation shown, OUTDATED.
 """
 
+import netgen.gui  # ruff: ignore[unused-import]
 import ngsolve as ngs
 import numpy as np
-import netgen.gui # do not remove this
 from netgen.occ import Glue
 from netgen.occ import MoveTo
 from netgen.occ import OCCGeometry
@@ -61,6 +61,7 @@ def generate_mesh(
     mesh.Curve(order)
 
     return mesh
+
 
 def grid_deformation_quantities(
         mesh: ngs.Mesh,
@@ -242,7 +243,7 @@ def mass_integral_wrt_deformation(
         ) * ngs.dx
 
 
-def main() -> None:
+def main() -> None:  # ruff: ignore[too-many-locals]
     """"Main setup and time iteration."""
     mesh = generate_mesh(ORDER, MAX_ELEMENT_SIZE)
 
