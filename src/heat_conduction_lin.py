@@ -36,6 +36,11 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Turn on/off visualization, by default set to False.",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Turn on/off error reporting, by default set to False.",
+    )
     return parser.parse_args()
 
 
@@ -48,6 +53,7 @@ TIME_STEP = 0.001
 END_TIME = 0.5
 SOURCE_STRENGTH = 100
 VIS_OPTION = args.vis_on
+PRINT_OPTION = args.verbose
 MAX_DIFF = 1e-2  # enforce less than 1% difference
 AMPLITUDE = 1e-2
 
@@ -584,7 +590,8 @@ def main() -> None:  # ruff: ignore[too-many-locals]
 
     # Begin Time Iteration
     t = 0
-    non_lin_history = []
+    norm_non_lin_history = []
+    error_history = []
 
     with ngs.TaskManager():
         while t < END_TIME:
@@ -614,22 +621,29 @@ def main() -> None:  # ruff: ignore[too-many-locals]
                 (temperature_lin - temperature)**2,
                 mesh,
             ))
-            non_lin_history.append(
+            error_history.append(error)
+            norm_non_lin_history.append(
                 np.sqrt(ngs.Integrate(
                     temperature**2, mesh,
                 )))
-            norm_err = error / np.max(non_lin_history)
+            norm_err = error / np.max(norm_non_lin_history)
 
             # Ensure difference is acceptable
             assert (norm_err <= MAX_DIFF), (
                 f"Non-linear and linear solutions differ more than {MAX_DIFF * 100} %.")
 
-            print(f"Time: {t:.2f}s - Current Normalized Error : {norm_err * 100:.5f} %")
-            t += TIME_STEP
+            if PRINT_OPTION:
+                print(f"Time: {t:.2f}s - Current Normalized Error : {norm_err * 100:.5f} %")
 
             # Display Current timestep
             if VIS_OPTION:
                 ngs.Redraw(blocking=True)
+
+            t += TIME_STEP
+        print(
+            f"Success: Non-linear and linear solutions differ at most "
+            f"{np.max(error_history) / np.max(norm_non_lin_history) * 100:.5f} %.",
+            )
 
 
 if __name__ == "__main__":
