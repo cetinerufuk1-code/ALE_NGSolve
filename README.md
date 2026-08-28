@@ -2,9 +2,9 @@
 
 <p align="center">
   <img
-    src="https://github.com/user-attachments/assets/6b05c2da-526b-4f6a-be5d-d7fa601d3998"
-    alt="heat_conduction_example"
-    width="500"
+    src="https://github.com/user-attachments/assets/14cf01bf-2bd1-45f2-9ebf-a3559aecbc37"
+    alt="heat_conduction_example_results"
+    width="750"
   />
 </p>
 
@@ -37,7 +37,7 @@ $$\frac{\partial \hat u}{\partial t} \approx \frac{u^{n+1} - u^{n}}{\Delta t}$$
 
 which splits the single mass integral into two pieces that end up on opposite sides of the linear system:
 
-$$\int_{\hat{\Omega}}J\frac{\partial \hat{u}}{\partial t}\hat{v}\,d\hat{x} \;\approx\; \underbrace{\int_{\hat{\Omega}}J\frac{u^{n+1}}{\Delta t}\hat{v}\,d\hat{x}}_{\text{unknown } u^{n+1}\ \to\ \text{LHS}} \;-\; \underbrace{\int_{\hat{\Omega}}J\frac{u^{n}}{\Delta t}\hat{v}\,d\hat{x}}_{\text{known from previous step}\ \to\ \text{RHS}}$$
+$$\int_{\hat{\Omega}}J\frac{\partial \hat{u}}{\partial t}\hat{v}d\hat{x} \approx \underbrace{\int_{\hat{\Omega}}J\frac{u^{n+1}}{\Delta t}\hat{v}d\hat{x}}_{\text{unknown } u^{n+1}\ \to\ \text{LHS}} \underbrace{\int_{\hat{\Omega}}J\frac{u^{n}}{\Delta t}\hat{v}d\hat{x}}_{\text{from previous step}\ \to\ \text{RHS}}$$
 
 The first piece involves the trial function $\hat u = u^{n+1}$ and is assembled into the bilinear (LHS) form. The second piece uses $u^{n}$, which is already known from the previous timestep, and so is treated as data and moved to the linear (RHS) form. 
 
